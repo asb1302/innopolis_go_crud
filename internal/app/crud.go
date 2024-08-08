@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"crud/internal/config"
 	"crud/internal/handler"
 	"crud/internal/pkg/authclient"
 	"crud/internal/pkg/server"
@@ -25,13 +26,17 @@ func Run() {
 		log.Fatalf("ERROR failed to initialize user database: %v", err)
 	}
 
-	authclient.Init("localhost:8000")
+	config.InitConfig()
+	cfg := config.GetConfig()
+
+	authclient.Init(cfg.AuthServiceHost, cfg.AuthServiceTLS)
 
 	// initialize service
 	service.Init(DB)
 
 	go func() {
-		err := server.Run("localhost:8080", handler.ServerHandler)
+		err := server.Run(":8000", handler.ServerHandler)
+
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Fatal("ERROR server run ", err)
 		}

@@ -57,3 +57,15 @@ func (c *RecipeCache) Delete(id string) error {
 
 	return nil
 }
+
+func (c *RecipeCache) GetAll() (map[string]*domain.Recipe, error) {
+	c.mtx.RLock()
+	defer c.mtx.RUnlock()
+
+	copyPool := make(map[string]*domain.Recipe, len(c.pool))
+	for id, recipe := range c.pool {
+		copyPool[id] = recipe
+	}
+
+	return copyPool, nil
+}

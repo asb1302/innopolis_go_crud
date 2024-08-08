@@ -7,10 +7,10 @@ import (
 	"encoding/json"
 	"github.com/valyala/fasthttp"
 	"log"
+	"strconv"
 )
 
 func ServerHandler(ctx *fasthttp.RequestCtx) {
-
 	ctx.Response.Header.Set(fasthttp.HeaderAccessControlAllowOrigin, "*")
 	ctx.Response.Header.Add(fasthttp.HeaderAccessControlAllowMethods, fasthttp.MethodPost)
 	ctx.Response.Header.Add(fasthttp.HeaderAccessControlAllowMethods, fasthttp.MethodGet)
@@ -22,23 +22,58 @@ func ServerHandler(ctx *fasthttp.RequestCtx) {
 		return
 	}
 
-	token := ctx.Request.Header.Peek(fasthttp.HeaderAuthorization)
-	log.Println(string(token) == "", !authclient.ValidateToken(string(token)), string(token) == "" || !authclient.ValidateToken(string(token)))
-	if string(token) == "" || !authclient.ValidateToken(string(token)) {
-		ctx.SetStatusCode(fasthttp.StatusUnauthorized)
-		log.Println("Get request", string(ctx.Method()), string(token), "error", fasthttp.StatusUnauthorized)
+	if string(ctx.Path()) != "/ping" {
+		token := ctx.Request.Header.Peek(fasthttp.HeaderAuthorization)
+		if string(token) == "" || !authclient.ValidateToken(string(token)) {
+			ctx.SetStatusCode(fasthttp.StatusUnauthorized)
+			log.Println("Request", string(ctx.Method()), "Unauthorized, token:", string(token))
+			return
+		}
+	}
+
+	switch string(ctx.Path()) {
+	case "/ping":
+		PingHandler(ctx)
+	case "/count":
+		CountHandler(ctx)
+	default:
+		handleRecipes(ctx)
+	}
+}
+
+func PingHandler(ctx *fasthttp.RequestCtx) {
+	ctx.SetStatusCode(fasthttp.StatusOK)
+
+	ctx.SetBodyString("pong")
+}
+
+func CountHandler(ctx *fasthttp.RequestCtx) {
+	count, err := service.GetRecipeCount()
+	if err != nil {
+		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
+		log.Println("Error fetching recipe count:", err)
 		return
 	}
 
-	switch {
-	case ctx.IsGet():
-		GetHandler(ctx)
-	case ctx.IsDelete():
-		DeleteHandler(ctx)
-	case ctx.IsPost():
-		PostHandler(ctx)
+	ctx.SetStatusCode(fasthttp.StatusOK)
+	_, err = ctx.Write([]byte(strconv.Itoa(count)))
+	if err != nil {
+		log.Println("Error writing response:", err)
 	}
+}
 
+func handleRecipes(ctx *fasthttp.RequestCtx) {
+	if ctx.IsGet() && ctx.QueryArgs().Has("page") {
+		PaginatedHandler(ctx)
+	} else if ctx.IsGet() {
+		GetHandler(ctx)
+	} else if ctx.IsDelete() {
+		DeleteHandler(ctx)
+	} else if ctx.IsPost() {
+		PostHandler(ctx)
+	} else {
+		ctx.SetStatusCode(fasthttp.StatusMethodNotAllowed)
+	}
 }
 
 func GetHandler(ctx *fasthttp.RequestCtx) {
@@ -105,6 +140,56 @@ func PostHandler(ctx *fasthttp.RequestCtx) {
 
 	if _, err = ctx.Write(marshal); err != nil {
 		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
+		return
+	}
+
+	ctx.SetStatusCode(fasthttp.StatusOK)
+}
+
+const (
+	defaultLimit = 10
+	maxLimit     = 10
+)
+
+func PaginatedHandler(ctx *fasthttp.RequestCtx) {
+	pageStr := ctx.QueryArgs().Peek("page")
+	limitStr := ctx.QueryArgs().Peek("limit")
+
+	page, err := strconv.Atoi(string(pageStr))
+	if err != nil || page < 1 {
+		ctx.SetStatusCode(fasthttp.StatusBadRequest)
+		ctx.SetBodyString("Invalid page number")
+
+		return
+	}
+
+	limit, err := strconv.Atoi(string(limitStr))
+	if err != nil || limit < 1 {
+		limit = defaultLimit
+	} else if limit > maxLimit {
+		limit = maxLimit
+	}
+
+	records, err := service.GetPaginated(page, limit)
+	if err != nil {
+		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
+		log.Println("Error getting paginated records:", err)
+
+		return
+	}
+
+	marshal, err := json.Marshal(records)
+	if err != nil {
+		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
+		log.Println("Error converting to json:", err)
+
+		return
+	}
+
+	if _, err = ctx.Write(marshal); err != nil {
+		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
+		log.Println("Error writing response:", err)
+
 		return
 	}
 
