@@ -1,0 +1,34 @@
+### Получение рецепта по ID
+GET https://innopolisgocrud-production.up.railway.app/?id=1
+Authorization: token
+
+### Добавление или обновление рецепта
+POST https://innopolisgocrud-production.up.railway.app:18001
+Authorization: token
+Content-Type: application/json
+
+{
+  "id": "1",
+  "name": "Рецепт 1",
+  "ingredients": [
+    {
+      "name": "Ингридиент 1",
+      "quantity": "100"
+    }
+  ],
+  "steps": [
+    "шаг 1"
+  ]
+}
+
+### Удаление рецепта по ID
+DELETE https://innopolisgocrud-production.up.railway.app/?id=1
+Authorization: token
+
+### Получение рецептов с пагинацией
+GET https://innopolisgocrud-production.up.railway.app/?page=1&limit=5
+Authorization: token
+
+### Получение количества всех рецептов
+GET https://innopolisgocrud-production.up.railway.app/count
+Authorization: token

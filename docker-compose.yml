@@ -1,0 +1,14 @@
+version: '3.8'
+
+services:
+  web:
+    build: .
+    ports:
+      - "18001:8000"
+    networks:
+      - webnet
+    env_file:
+      - .env
+
+networks:
+  webnet:
