@@ -5,12 +5,31 @@ import (
 	"crud/internal/pkg/authclient"
 	"crud/internal/service"
 	"encoding/json"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/valyala/fasthttp"
+	"github.com/valyala/fasthttp/fasthttpadaptor"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/metric"
 	"log"
 	"strconv"
+	"time"
+)
+
+var (
+	// Общие метрики
+	tracer         = otel.Tracer("requests-tracer")
+	meter          = otel.Meter("requests-meter")
+	allReqCount, _ = meter.Int64Counter("requests_total", metric.WithDescription("Total number of requests"))
+
+	// Метрики для PingHandler
+	pingCount, _   = meter.Int64Counter("requests_ping", metric.WithDescription("Total number of pingHandler requests"))
+	pingLatency, _ = meter.Float64Histogram("ping_latency", metric.WithDescription("Latency of pingHandler requests"))
+
+	// Метрики для GetHandler
+	getCount, _   = meter.Int64Counter("requests_get", metric.WithDescription("Total number of getHandler requests"))
+	getLatency, _ = meter.Float64Histogram("get_latency", metric.WithDescription("Latency of getHandler requests"))
 )
 
 func ServerHandler(ctx *fasthttp.RequestCtx) {
@@ -22,6 +41,12 @@ func ServerHandler(ctx *fasthttp.RequestCtx) {
 	ctx.Response.Header.Add(fasthttp.HeaderAccessControlAllowHeaders, fasthttp.HeaderAuthorization)
 
 	if ctx.IsOptions() {
+		return
+	}
+
+	if string(ctx.Path()) == "/metrics" {
+		PrometheusHandler(ctx)
+
 		return
 	}
 
@@ -45,12 +70,18 @@ func ServerHandler(ctx *fasthttp.RequestCtx) {
 }
 
 func PingHandler(ctx *fasthttp.RequestCtx) {
-	// Создаем спан для трассировки этого запроса
-	_, span := otel.Tracer("ping-tracer").Start(ctx, "PingHandler")
+	start := time.Now()
+	_, span := tracer.Start(ctx, "PingHandler")
 	defer span.End()
+
+	allReqCount.Add(ctx, 1)
+	pingCount.Add(ctx, 1)
 
 	ctx.SetStatusCode(fasthttp.StatusOK)
 	ctx.SetBodyString("pong")
+
+	duration := time.Since(start).Seconds()
+	pingLatency.Record(ctx, duration)
 }
 
 func CountHandler(ctx *fasthttp.RequestCtx) {
@@ -68,6 +99,10 @@ func CountHandler(ctx *fasthttp.RequestCtx) {
 	}
 }
 
+func PrometheusHandler(ctx *fasthttp.RequestCtx) {
+	fasthttpadaptor.NewFastHTTPHandler(promhttp.Handler())(ctx)
+}
+
 func handleRecipes(ctx *fasthttp.RequestCtx) {
 	if ctx.IsGet() && ctx.QueryArgs().Has("page") {
 		PaginatedHandler(ctx)
@@ -83,12 +118,17 @@ func handleRecipes(ctx *fasthttp.RequestCtx) {
 }
 
 func GetHandler(ctx *fasthttp.RequestCtx) {
+	start := time.Now()
 	_, span := otel.Tracer("get-tracer").Start(ctx, "GetHandler")
 	defer span.End()
+
+	allReqCount.Add(ctx, 1)
+	getCount.Add(ctx, 1)
 
 	id := ctx.QueryArgs().Peek("id")
 	if len(id) == 0 {
 		ctx.SetStatusCode(fasthttp.StatusBadRequest)
+		span.SetStatus(codes.Error, "Missing ID")
 		return
 	}
 
@@ -119,6 +159,9 @@ func GetHandler(ctx *fasthttp.RequestCtx) {
 
 	span.SetStatus(codes.Ok, "Success")
 	ctx.SetStatusCode(fasthttp.StatusOK)
+
+	duration := time.Since(start).Seconds()
+	getLatency.Record(ctx, duration)
 }
 
 func DeleteHandler(ctx *fasthttp.RequestCtx) {

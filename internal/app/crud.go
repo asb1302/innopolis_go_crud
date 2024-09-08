@@ -8,6 +8,7 @@ import (
 	"crud/internal/pkg/server"
 	"crud/internal/repository/cache"
 	"crud/internal/service"
+	"crud/pkg/meter"
 	"crud/pkg/tracer"
 	"errors"
 	"log"
@@ -37,6 +38,11 @@ func Run() {
 		log.Fatal("init tracer", err)
 	}
 
+	meterProv, err := meter.InitMeter(ctx, serviceName)
+	if err != nil {
+		log.Fatal("init meter", err)
+	}
+
 	authclient.Init(cfg.AuthServiceHost, cfg.AuthServiceTLS)
 
 	// initialize service
@@ -60,6 +66,10 @@ func Run() {
 
 	if err := traceProv.Shutdown(ctx); err != nil {
 		log.Printf("Error shutting down tracer provider: %v", err)
+	}
+
+	if err := meterProv.Shutdown(ctx); err != nil {
+		log.Printf("Error shutting down meter provider: %v", err)
 	}
 
 	wg.Wait()

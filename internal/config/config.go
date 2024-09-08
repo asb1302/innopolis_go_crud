@@ -14,7 +14,6 @@ type Config struct {
 var config Config
 
 func InitConfig() {
-	// TODO добавить энвы включения и отключения джагера
 	viper.AutomaticEnv()
 
 	config.AuthServiceHost = viper.GetString("AUTH_SERVICE_HOST")
