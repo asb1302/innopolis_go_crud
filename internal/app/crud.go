@@ -8,6 +8,7 @@ import (
 	"crud/internal/pkg/server"
 	"crud/internal/repository/cache"
 	"crud/internal/service"
+	"crud/pkg/tracer"
 	"errors"
 	"log"
 	"net/http"
@@ -15,6 +16,8 @@ import (
 	"sync"
 	"syscall"
 )
+
+var serviceName = "Crud Service"
 
 func Run() {
 	ctx, _ := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -28,6 +31,11 @@ func Run() {
 
 	config.InitConfig()
 	cfg := config.GetConfig()
+
+	traceProv, err := tracer.InitTracer("http://jaeger:14268/api/traces", serviceName)
+	if err != nil {
+		log.Fatal("init tracer", err)
+	}
 
 	authclient.Init(cfg.AuthServiceHost, cfg.AuthServiceTLS)
 
@@ -49,6 +57,11 @@ func Run() {
 	if err = server.Stop(); err != nil {
 		log.Fatal("ERROR server was not gracefully shutdown", err)
 	}
+
+	if err := traceProv.Shutdown(ctx); err != nil {
+		log.Printf("Error shutting down tracer provider: %v", err)
+	}
+
 	wg.Wait()
 
 	log.Println("INFO CRUD service was gracefully shutdown")

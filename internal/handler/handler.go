@@ -6,6 +6,9 @@ import (
 	"crud/internal/service"
 	"encoding/json"
 	"github.com/valyala/fasthttp"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"log"
 	"strconv"
 )
@@ -42,8 +45,11 @@ func ServerHandler(ctx *fasthttp.RequestCtx) {
 }
 
 func PingHandler(ctx *fasthttp.RequestCtx) {
-	ctx.SetStatusCode(fasthttp.StatusOK)
+	// Создаем спан для трассировки этого запроса
+	_, span := otel.Tracer("ping-tracer").Start(ctx, "PingHandler")
+	defer span.End()
 
+	ctx.SetStatusCode(fasthttp.StatusOK)
 	ctx.SetBodyString("pong")
 }
 
@@ -77,21 +83,32 @@ func handleRecipes(ctx *fasthttp.RequestCtx) {
 }
 
 func GetHandler(ctx *fasthttp.RequestCtx) {
+	_, span := otel.Tracer("get-tracer").Start(ctx, "GetHandler")
+	defer span.End()
+
 	id := ctx.QueryArgs().Peek("id")
 	if len(id) == 0 {
 		ctx.SetStatusCode(fasthttp.StatusBadRequest)
 		return
 	}
 
+	span.SetAttributes(attribute.String("requested_id", string(id)))
+
 	rec, err := service.Get(string(id))
 	if err != nil {
+		span.SetAttributes(attribute.String("error", err.Error()))
+		span.SetStatus(codes.Error, "Record not found")
 		ctx.SetStatusCode(fasthttp.StatusNotFound)
+
 		return
 	}
+
+	span.AddEvent("Record found")
 
 	marshal, err := json.Marshal(rec)
 	if err != nil {
 		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
+
 		return
 	}
 
@@ -100,6 +117,7 @@ func GetHandler(ctx *fasthttp.RequestCtx) {
 		return
 	}
 
+	span.SetStatus(codes.Ok, "Success")
 	ctx.SetStatusCode(fasthttp.StatusOK)
 }
 
